@@ -1,0 +1,119 @@
+---
+  - name: set ip adress for the cluster to /etc/hosts
+    blockinfile:
+      state: present
+      insertafter: EOF
+      dest: "/etc/hosts"
+      content: |
+        {{ lookup('file', 'templates/hosts.j2') }}
+  - name: copy pulsar
+    copy:
+      src: "{{ apache_pulsar_arch }}"
+      dest: "/opt"
+      force: no
+#    when: "'broker' in group_names"
+#  - name: copy zookeeper
+#    copy:
+#      src: "{{ apache_zookeeper_arch }}"
+#      dest: "/opt"
+#      force: no
+#    when: "'zookeeper' in group_names"
+  - name: Unarchive a apache pulsar
+    unarchive:
+      src: "/opt/{{ apache_pulsar_arch }}"
+      dest: /opt
+      remote_src: yes
+#    when: "'broker' in group_names"
+    register: apache_pulsar_root_dir
+#  - name: Unarchive a apache zookeeper
+#    unarchive:
+#      src: "/opt/{{ apache_zookeeper_arch }}"
+#      dest: /opt
+#      remote_src: yes
+#    when: "'zookeeper' in group_names"
+
+  - name: copy zookeeper conf to pulsar
+    blockinfile:
+      state: present
+      insertafter: EOF
+      dest: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/conf/zookeeper.conf"
+      content: |
+        {{ lookup('file', 'templates/zookeeper.j2') }}
+    when: "'zookeeper' in group_names"
+  - name: Create data dirs
+    file:
+      path: "{{ item.path }}"
+      state: directory
+      mode: "{{ item.mode | default(omit) }}"
+    loop:
+      - path: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/data/"
+        mode: a+rX
+  - name: Create zookeeper dirs
+    file:
+      path: "{{ item.path }}"
+      state: directory
+      mode: "{{ item.mode | default(omit) }}"
+    loop:
+      - path: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/data/zookeeper"
+        mode: a+rX
+    when: "'zookeeper' in group_names"
+  - name: Set cluster ID
+    copy:
+      dest: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/data/zookeeper/myid"
+      content: "{{ inventory_hostname |  replace('zookeeper' ,'' ) | replace('.pulsar' ,'')  }}"
+    when: "'zookeeper' in group_names"
+
+  - name: Remove lines with zkServers from bookkeeper conf
+    lineinfile:
+      dest: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/conf/bookkeeper.conf"
+      regexp: "^zkServers"
+      state: absent
+  - name: set zkServers ensemble to bookkeeper conf
+    lineinfile:
+      state: present
+      dest: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/conf/bookkeeper.conf"
+      line: |
+        {{ lookup('file', 'templates/bookeeper.j2') }}
+    when: "'broker' in group_names"
+  - name: Remove lines with advertisedAddress from bookkeeper conf
+    lineinfile:
+      dest: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/conf/bookkeeper.conf"
+      regexp: "^advertisedAddress"
+      state: absent
+    when: "'broker' in group_names"
+  - name: set advertisedAddress ensemble to bookkeeper conf
+    lineinfile:
+      state: present
+      dest: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/conf/bookkeeper.conf"
+      line: |
+        {{ lookup('file', 'templates/bookie.j2') }}
+    when: "'broker' in group_names"
+
+  - name: Start zookeeper.
+    shell:
+      cmd: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/bin/pulsar-daemon start zookeeper"
+    when: "'zookeeper' in group_names"
+
+  - name: Initialise metadata.
+    shell:
+      cmd: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/bin/pulsar initialize-cluster-metadata \
+                                                                              --cluster pulsar-cluster-1 \
+                                                                              --zookeeper 10.10.10.14:2181 \
+                                                                              --configuration-store 10.10.10.14:2181,10.10.10.15:2181,10.10.10.16:2181 \
+                                                                              --web-service-url http://10.10.10.11:8080,10.10.10.12:8080,10.10.10.13:8080 \
+                                                                              --web-service-url-tls https://10.10.10.11:8443,10.10.10.12:8443,10.10.10.13:8443 \
+                                                                              --broker-service-url pulsar://10.10.10.11:6650,10.10.10.12:6650,10.10.10.13:6650 \
+                                                                              --broker-service-url-tls pulsar+ssl://10.10.10.11:6651,10.10.10.12:6651,10.10.10.13:6651"
+    when: inventory_hostname == groups['zookeeper'][0]
+
+  - name: Start bookeeper.
+    shell:
+      cmd: "/opt/{{ apache_pulsar_arch | replace('-bin.tar.gz' ,'') }}/bin/pulsar-daemon start bookie"
+    when: "'broker' in group_names"
+
+
+
+
+  - name: Display arch
+    debug:
+      msg: "The name of dir is is {{ inventory_hostname | replace('pulsar' ,'') | replace('zookeeper' ,'') }} "

@@ -1,0 +1,5 @@
+---
+# vars file for pulsar-install
+apache_pulsar_arch: "apache-pulsar-2.6.1-bin.tar.gz"
+apache_zookeeper_arch: "apache-zookeeper-3.6.1-bin.tar.gz"
+zookeeper_data_dir:  "/data"
